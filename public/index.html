@@ -1,0 +1,192 @@
+<html manifest="offline.manifest">
+    <head>
+      <title>My app</title>
+        <style>
+            h1 {
+                font-size: 1.5em;
+                text-align: center;
+            }
+            #header, #footer, #content {
+                left: 0;
+                position: absolute;
+                width: 100%;
+            }
+            #header {
+                top: 0;
+                height: 50px;
+                background: lime;
+                overflow: no-display;
+            }
+            #footer {
+                bottom: 0;
+                height: 40px;
+                background: lime;
+                overflow: no-display;
+                text-align: right;
+                vertical-align: middle;
+            }
+            #content {
+                top: 50px;
+                bottom: 40px;
+                overflow-y: scroll;
+            }
+            tr.highlight {
+                background: yellow;
+            }
+            label {
+                display: block;
+                font-weight: bold;
+            }
+        </style>
+    </head>
+    <body>
+        <div>
+            <header id="header">
+                <h1>Responsive Address Book</h1>
+            </header>
+
+            <footer id="footer">
+                <p>Copyright 2012</p>
+            </footer>
+			
+            <div id="content">
+				<section id="errorMessage" style="display: none">
+					Something went wrong
+				</section>
+
+                <h3>Add address</h3>
+                <form id="addressForm">
+                    <div><label for="fullName">Full name:</label> <input type="text" name="fullName" id="fullName" value="" /></div>
+                    <div><label for="address">Address:</label> <input type="text" name="address" id="address" value="" /></div>
+                    <div><input type="submit" value="Add" /></div>
+                </form>
+
+                <form id="resetForm">
+                  <div><input type="submit" value="Reset cache" /></div>
+                </form>
+                <table>
+                    <thead>
+                        <tr><th>Name</th><th>Address</th>><th>Misc</th></tr>
+                    </thead>
+
+                    <tbody id="addresses">
+                    </tbody>
+                </table>
+
+                <div id="events">
+                </div>
+            </div>
+
+        </div>
+    </body>
+    <script type="text/javascript">
+        var createGuid = function() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                  var r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8);
+                  return v.toString(16);
+            });
+        };
+		
+		var highlight = function(htmlElement) {
+            var backgroundColor = 0;
+            var highlighter = setInterval(function() {
+               htmlElement.style.background = "rgb(100%, 100%, " +
+                  backgroundColor + "%)";
+               backgroundColor += 5;
+               if (backgroundColor >= 100) {
+                  clearInterval(highlighter);
+				  htmlElement.style.background = null;
+               }
+            }, 100);		
+		};
+
+        var appendAddress = function(address) {
+            var tr = document.createElement("tr");
+            var nameTd = document.createElement("td");
+            nameTd.innerHTML = address.fullName;
+            tr.appendChild(nameTd);
+            var addressTd = document.createElement("td");
+            addressTd.innerHTML = address.address;
+            tr.appendChild(addressTd);
+            var miscTd = document.createElement("td");
+            miscTd.innerHTML = address.address;
+            tr.appendChild(miscTd);
+            document.getElementById("addresses").appendChild(tr);
+			return tr;
+        };
+
+        document.getElementById("addressForm").onsubmit = function(e) {
+            e.preventDefault();
+            var address = {
+                id: createGuid(),
+                fullName: document.getElementById("fullName").value,
+                address: document.getElementById("address").value
+            };
+			
+			var unsentAddresses = [];
+			if (localStorage["unsentAddresses"]) {
+				unsentAddresses = JSON.parse(localStorage["unsentAddresses"]);
+			}
+			unsentAddresses.push(address);
+			localStorage["unsentAddresses"] = JSON.stringify(unsentAddresses);
+			
+			var sendAddresses = function() {
+				var httpRequest = new XMLHttpRequest();
+				httpRequest.onreadystatechange = function () {
+					var errorMessage = document.getElementById("errorMessage");
+					if (httpRequest.readyState == 4) {
+						if (httpRequest.status == 200) {
+							clearInterval(sendInterval);
+							errorMessage.style.display = "none";
+							delete localStorage["unsentAddresses"];
+						} else {
+							errorMessage.innerText = "Server is offline - will send address when online";
+							errorMessage.style.display = "block";
+							console.log("Problems with submit. Whops! " + httpRequest.status);
+						}
+					} else {
+					}
+				};
+
+				httpRequest.open("POST", "/addresses");
+				httpRequest.setRequestHeader("Content-Type", "application/json");
+				httpRequest.send(localStorage["unsentAddresses"]);
+			};
+			var sendInterval = setInterval(sendAddresses, 1000);
+			sendAddresses();
+            this.reset();
+            document.getElementById("fullName").focus();
+        };
+
+        document.getElementById("resetForm").onsubmit = function(e) {
+            e.preventDefault();
+            localStorage["addressCount"] = 0;
+            localStorage["lastAddressTime"] = "0";
+            document.location = document.location;
+        };
+
+        if (!localStorage["addressCount"]) {
+            localStorage["addressCount"] = "0";
+        }
+
+        var addressCount = parseInt(localStorage["addressCount"]);
+        for (var i=0; i<addressCount; i++) {
+            var address = JSON.parse(localStorage["address." + i]);
+            appendAddress(address);
+        }
+
+        var lastAddressTime = new Date(parseInt(localStorage["lastAddressTime"] || "0"));
+
+        var addressSource = new EventSource('stream/addresses?lastAddressTime=' + lastAddressTime.getTime());
+        addressSource.addEventListener('message', function (e) {
+            var address = JSON.parse(e.data).address;
+            var index = parseInt(localStorage["addressCount"]);
+            localStorage["addressCount"] = index+1;
+            localStorage["address." + index] = JSON.stringify(address);
+            highlight(appendAddress(address));
+            localStorage["lastAddressTime"] = new Date(address.serverTime).getTime();
+        });
+
+        document.getElementById("fullName").focus();
+    </script>
+</html>
